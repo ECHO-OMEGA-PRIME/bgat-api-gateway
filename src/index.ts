@@ -1411,22 +1411,36 @@ app.post('/api/v1/invoices', async (c) => {
   const taxCents = Math.round(subtotal * taxRate * 100);
   const totalCents = amountCents + taxCents;
 
-  // Generate invoice number
+  // Generate invoice number with MAX()-based sequential + retry loop
   const now = new Date();
   const prefix = `BGAT-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const seq = Math.floor(Math.random() * 9999).toString().padStart(4, '0');
-  const invoiceNumber = `${prefix}-${seq}`;
-
-  const id = uuid();
-  await c.env.DB.prepare(`
-    INSERT INTO invoices (id, invoice_number, customer_id, customer_name, customer_email,
-      service_type, amount_cents, tax_cents, total_cents, status, due_date, notes, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)
-  `).bind(
-    id, invoiceNumber, customer_id || null, customer_name, customer_email || null,
-    service_type || null, amountCents, taxCents, totalCents,
-    due_date || null, notes || null, now.toISOString(), now.toISOString()
-  ).run();
+  let invoiceNumber = '';
+  let id = '';
+  let inserted = false;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const maxRow = await c.env.DB.prepare(
+      `SELECT MAX(CAST(substr(invoice_number, -4) AS INTEGER)) as max_seq FROM invoices WHERE invoice_number LIKE ?1`
+    ).bind(`${prefix}-%`).first<{ max_seq: number | null }>();
+    const seq = ((maxRow?.max_seq ?? 0) + 1).toString().padStart(4, '0');
+    invoiceNumber = `${prefix}-${seq}`;
+    id = uuid();
+    try {
+      await c.env.DB.prepare(`
+        INSERT INTO invoices (id, invoice_number, customer_id, customer_name, customer_email,
+          service_type, amount_cents, tax_cents, total_cents, status, due_date, notes, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)
+      `).bind(
+        id, invoiceNumber, customer_id || null, customer_name, customer_email || null,
+        service_type || null, amountCents, taxCents, totalCents,
+        due_date || null, notes || null, now.toISOString(), now.toISOString()
+      ).run();
+      inserted = true;
+      break;
+    } catch (e: unknown) {
+      if (attempt === 4 || !(e instanceof Error) || !e.message.includes('UNIQUE')) throw e;
+    }
+  }
+  if (!inserted) throw new Error('Failed to generate unique invoice number');
 
   // Insert line items
   if (line_items && Array.isArray(line_items)) {
