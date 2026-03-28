@@ -71,6 +71,8 @@ function uuid(): string {
 // Health
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+app.get('/', (c) => c.json({ service: 'bgat-api-gateway', status: 'operational' }));
+
 app.get('/health', async (c) => {
   const env = c.env;
   let dbOk = false;
