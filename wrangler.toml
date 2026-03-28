@@ -1,6 +1,6 @@
 name = "bgat-api-gateway"
 main = "src/index.ts"
-compatibility_date = "2024-09-23"
+compatibility_date = "2024-12-01"
 
 [vars]
 WORKER_VERSION = "3.0.0"
